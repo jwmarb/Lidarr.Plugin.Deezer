@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <AdditionalFiles Remove="E:\Projects\GitHub\Lidarr.Plugin.Deezer\src\stylecop.json" />
+    <AdditionalFiles Remove="$(MSBuildThisFileDirectory)..\stylecop.json" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,226 +1,162 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Newtonsoft.Json.Linq;
-using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+using NLog;
 using NzbDrone.Common.Http;
-using NzbDrone.Core.Download.Clients.Deezer;
 using NzbDrone.Core.Parser.Model;
-using System.Collections.Concurrent;
 using NzbDrone.Plugin.Deezer;
-using System.Globalization;
 
 namespace NzbDrone.Core.Indexers.Deezer
 {
     public class DeezerParser : IParseIndexerResponse
     {
+        /// <summary>
+        /// Caps how many album pages we fetch concurrently while enriching a page
+        /// of search hits. Enrichment is one request per hit and was previously
+        /// unbounded, against an API that rate-limits and bans.
+        /// </summary>
+        private const int MaxConcurrentEnrichment = 4;
+
         public DeezerIndexerSettings Settings { get; set; }
+        public Logger Logger { get; set; }
+        public DeezerSession Session { get; set; }
 
         public IList<ReleaseInfo> ParseResponse(IndexerResponse response)
         {
-            var torrentInfos = new List<ReleaseInfo>();
-
-            DeezerSearchResponse jsonResponse = null;
-            if (response.HttpRequest.Url.FullUri.Contains("method=page.get", StringComparison.InvariantCulture)) // means we're asking for a channel and need to parse it accordingly
+            if (Session == null)
             {
-                var task = GenerateSearchResponseFromChannelData(response.Content);
-                task.Wait();
-                jsonResponse = task.Result;
+                return Array.Empty<ReleaseInfo>();
             }
-            else
-                jsonResponse = new HttpResponse<DeezerSearchResponseWrapper>(response.HttpResponse).Resource.Results;
 
-            var tasks = jsonResponse.Data.Select(result => ProcessResultAsync(result)).ToArray();
+            var albumIds = ReadAlbumIds(response);
 
-            Task.WaitAll(tasks);
-
-            foreach (var task in tasks)
+            if (albumIds.Count == 0)
             {
-                if (task.Result != null)
-                    torrentInfos.AddRange(task.Result);
+                return Array.Empty<ReleaseInfo>();
             }
-            
-            return torrentInfos
-                .OrderByDescending(o => o.Size)
-                .ToArray();
+
+            // IParseIndexerResponse is synchronous upstream, so the async
+            // enrichment has to be awaited here. The blocking is confined to this
+            // one call, with a bounded fan-out behind it (ADR-0006).
+            var releases = EnrichAsync(albumIds).GetAwaiter().GetResult();
+
+            return releases.OrderByDescending(r => r.Size).ToArray();
         }
 
-        private async Task<IList<ReleaseInfo>> ProcessResultAsync(DeezerGwAlbum result)
+        private List<long> ReadAlbumIds(IndexerResponse response)
         {
-            var torrentInfos = new List<ReleaseInfo>();
+            var ids = new List<long>();
 
-            var albumPage = await DeezerAPI.Instance.Client.GWApi.GetAlbumPage(long.Parse(result.AlbumId, CultureInfo.InvariantCulture));
-
-            var missing = albumPage["SONGS"]!["data"]!.Count(d => d["FILESIZE"]!.ToString() == "0");
-            if (Settings.HideAlbumsWithMissing && missing > 0)
-                return null; // return null if missing any tracks
-
-            var size128 = albumPage["SONGS"]!["data"]!.Sum(d => d["FILESIZE_MP3_128"]!.Value<long>());
-            var size320 = albumPage["SONGS"]!["data"]!.Sum(d => d["FILESIZE_MP3_320"]!.Value<long>());
-            var sizeFlac = albumPage["SONGS"]!["data"]!.Sum(d => d["FILESIZE_FLAC"]!.Value<long>());
-
-            // MP3 128
-            torrentInfos.Add(ToReleaseInfo(result, 1, size128));
-
-            // MP3 320
-            if (DeezerAPI.Instance.Client.GWApi.ActiveUserData["USER"]!["OPTIONS"]!["web_hq"]!.Value<bool>())
+            JToken data;
+            try
             {
-                torrentInfos.Add(ToReleaseInfo(result, 3, size320));
+                data = JObject.Parse(response.Content)["results"]?["data"];
+            }
+            catch (Newtonsoft.Json.JsonException ex)
+            {
+                Logger?.Warn(ex, "Could not parse the Deezer search response.");
+                return ids;
             }
 
-            // FLAC
-            if (DeezerAPI.Instance.Client.GWApi.ActiveUserData["USER"]!["OPTIONS"]!["web_lossless"]!.Value<bool>())
+            if (data == null)
             {
-                torrentInfos.Add(ToReleaseInfo(result, 9, sizeFlac));
+                return ids;
             }
 
-            return torrentInfos;
-        }
-
-        private static ReleaseInfo ToReleaseInfo(DeezerGwAlbum x, int bitrate, long size)
-        {
-            var publishDate = DateTime.UtcNow;
-            var year = 0;
-            if (DateTime.TryParse(x.DigitalReleaseDate, out var digitalReleaseDate))
+            foreach (var result in data)
             {
-                publishDate = digitalReleaseDate;
-                year = publishDate.Year;
-            }
-            else if (DateTime.TryParse(x.PhysicalReleaseDate, out var physicalReleaseDate))
-            {
-                publishDate = physicalReleaseDate;
-                year = publishDate.Year;
-            }
-
-            var url = $"https://deezer.com/album/{x.AlbumId}";
-
-            var result = new ReleaseInfo
-            {
-                Guid = $"Deezer-{x.AlbumId}-{bitrate}",
-                Artist = x.ArtistName,
-                Album = x.AlbumTitle,
-                DownloadUrl = url,
-                InfoUrl = url,
-                PublishDate = publishDate,
-                DownloadProtocol = nameof(DeezerDownloadProtocol)
-            };
-
-            string format;
-            switch (bitrate)
-            {
-                case 9:
-                    result.Codec = "FLAC";
-                    result.Container = "Lossless";
-                    format = "FLAC";
-                    break;
-                case 3:
-                    result.Codec = "MP3";
-                    result.Container = "320";
-                    format = "MP3 320";
-                    break;
-                case 1:
-                    result.Codec = "MP3";
-                    result.Container = "128";
-                    format = "MP3 128";
-                    break;
-                default:
-                    throw new NotImplementedException();
-            }
-
-            result.Size = size;
-            result.Title = $"{x.ArtistName} - {x.AlbumTitle}";
-
-            if (year > 0)
-            {
-                result.Title += $" ({year})";
-            }
-
-            if (x.Explicit)
-            {
-                result.Title += " [Explicit]";
-            }
-
-            result.Title += $" [{format}] [WEB]";
-
-            return result;
-        }
-
-        // based on the code for the /api/newReleases endpoint of deemix
-        private async Task<DeezerSearchResponse> GenerateSearchResponseFromChannelData(string channelData)
-        {
-            var page = JObject.Parse(channelData)["results"]!;
-            var musicSection = page["sections"]!.First(s => s["section_id"]!.ToString().Contains("module_id=83718b7b-5503-4062-b8b9-3530e2e2cefa"));
-            var channels = musicSection["items"]!.Select(i => i["target"]!.ToString()).ToArray();
-
-            var newReleasesByChannel = await Task.WhenAll(channels.Select(c => GetChannelNewReleases(c)));
-
-            var seen = new ConcurrentDictionary<long, bool>();
-            var distinct = new ConcurrentBag<JToken>();
-
-            Parallel.ForEach(newReleasesByChannel.SelectMany(l => l), r =>
-            {
-                var id = r["ALB_ID"]!.Value<long>();
-                if (seen.TryAdd(id, true))
+                try
                 {
-                    distinct.Add(r);
+                    ids.Add(DeezerCatalogue.ReadSearchResultAlbumId(result));
+                }
+                catch (CatalogueDataException ex)
+                {
+                    // One malformed search hit should not fail the whole page.
+                    Logger?.Trace(ex, "Skipping a malformed Deezer search result.");
+                }
+            }
+
+            return ids;
+        }
+
+        private async Task<List<ReleaseInfo>> EnrichAsync(IReadOnlyList<long> albumIds)
+        {
+            var releases = new List<ReleaseInfo>();
+            var sync = new object();
+
+            using var gate = new SemaphoreSlim(MaxConcurrentEnrichment, MaxConcurrentEnrichment);
+
+            var tasks = albumIds.Select(async albumId =>
+            {
+                await gate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    var page = await Session.Transport.GetAlbumPageAsync(albumId, default).ConfigureAwait(false);
+                    var album = DeezerCatalogue.ReadAlbum(page);
+
+                    if (Settings?.HideAlbumsWithMissing == true && album.MissingTrackCount > 0)
+                    {
+                        return;
+                    }
+
+                    var built = BuildReleases(album);
+
+                    lock (sync)
+                    {
+                        releases.AddRange(built);
+                    }
+                }
+                catch (CatalogueDataException ex)
+                {
+                    Logger?.Trace(ex, $"Skipping Deezer album {albumId}: its page is missing required data.");
+                }
+                catch (Exception ex)
+                {
+                    Logger?.Warn(ex, $"Could not read Deezer album {albumId}.");
+                }
+                finally
+                {
+                    gate.Release();
                 }
             });
 
-            var sortedDistinct = distinct.OrderByDescending(a => DateTime.TryParse(a["DIGITAL_RELEASE_DATE"]!.Value<string>()!, out var release) ? release : DateTime.MinValue).ToList();
+            await Task.WhenAll(tasks).ConfigureAwait(false);
 
-            var now = DateTime.Now;
-            var recent = sortedDistinct.Where(a => DateTime.TryParse(a["DIGITAL_RELEASE_DATE"]!.Value<string>()!, out var release) && (now - release).Days < 8);
-
-            JObject baseObj = new();
-            JArray dataArray = new();
-
-            long albumCount = 0;
-
-            await Task.WhenAll(recent.Select(async album =>
-            {
-                var id = album["ALB_ID"]!.Value<long>();
-                var result = await DeezerAPI.Instance.Client.GWApi.GetAlbumPage(id);
-
-                var duration = result["SONGS"]!.Sum(track => track.Contains("DURATION") ? track["DURATION"]!.Value<long>() : 0L);
-                var trackCount = result["SONGS"]!.Count();
-
-                var data = result["DATA"]!;
-                data["DURATION"] = duration;
-                data["NUMBER_TRACK"] = trackCount;
-                data["LINK"] = $"https://deezer.com/album/{id}";
-
-                lock (dataArray)
-                {
-                    dataArray.Add(data);
-                    albumCount++;
-                }
-            }));
-
-            baseObj.Add("data", dataArray);
-            baseObj.Add("total", albumCount);
-
-            return baseObj.ToObject<DeezerSearchResponse>();
+            return releases;
         }
 
-        private async Task<JToken[]> GetChannelNewReleases(string channelName)
+        /// <summary>
+        /// One release per quality the session may fetch AND the album actually
+        /// has bytes for. Gating on entitlement alone, as before, publishes
+        /// releases that cannot be downloaded.
+        /// </summary>
+        private IEnumerable<ReleaseInfo> BuildReleases(AlbumFacts album)
         {
-            var channelData = await DeezerAPI.Instance.Client.GWApi.GetPage(channelName);
-            Regex regex = new("New.*releases");
+            var url = DeezerQuality.AlbumUrl(album.Id);
 
-            var newReleasesSection = (JObject)channelData["sections"]!.FirstOrDefault(s => regex.IsMatch(s["title"]!.ToString()))!;
-            if (newReleasesSection == null)
-                return Array.Empty<JToken>();
-
-            if (newReleasesSection.ContainsKey("target"))
+            foreach (var quality in Session.AvailableQualities(album))
             {
-                var showAll = await DeezerAPI.Instance.Client.GWApi.GetPage(newReleasesSection["target"]!.ToString());
-                return showAll["sections"]!.First()!["items"]!.Select(i => i["data"]!).ToArray();
-            }
+                var release = new ReleaseInfo
+                {
+                    Guid = DeezerQuality.ReleaseGuid(album.Id, quality),
+                    Artist = album.Artist,
+                    Album = album.Title,
+                    Title = DeezerQuality.ReleaseTitle(
+                        album.Artist, album.Title, album.Year, album.Explicit, quality),
+                    DownloadUrl = url,
+                    InfoUrl = url,
+                    PublishDate = album.ReleaseDate ?? DateTime.UtcNow,
+                    Size = album.TotalDeclaredSize(quality),
+                    DownloadProtocol = nameof(DeezerDownloadProtocol)
+                };
 
-            return newReleasesSection.ContainsKey("items")
-                ? newReleasesSection["items"]!.Select(i => i["data"]!).ToArray()
-                : Array.Empty<JToken>();
+                DeezerQuality.Describe(release, quality);
+
+                yield return release;
+            }
         }
     }
 }

@@ -12,7 +12,9 @@ namespace NzbDrone.Core.Indexers.Deezer
     {
         private static readonly DeezerIndexerSettingsValidator Validator = new DeezerIndexerSettingsValidator();
 
-        [FieldDefinition(0, Label = "Arl", Type = FieldType.Textbox)]
+        // An ARL is a full account bearer credential, so it is marked as a secret
+        // rather than rendered in clear text by the UI and the settings API.
+        [FieldDefinition(0, Label = "Arl", Type = FieldType.Textbox, Privacy = PrivacyLevel.ApiKey, HelpText = "The arl cookie from your browser's deezer.com cookies after logging in.")]
         public string Arl { get; set; } = "";
 
         [FieldDefinition(1, Label = "Hide Albums With Missing Tracks", HelpText = "If an album has any unavailable tracks on Deezer, they will not be provided when searching.", Type = FieldType.Checkbox)]
