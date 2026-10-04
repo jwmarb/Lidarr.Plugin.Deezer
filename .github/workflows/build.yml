@@ -63,7 +63,18 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           echo "Changelog:" > changelog.txt
-          git log --oneline $(git describe --tags --abbrev=0)..HEAD | awk '{print "- " substr($0, index($0,$2))}' >> changelog.txt
+          # No tags exist on a fresh fork, so git describe fails. Fall back to
+          # the whole history rather than emitting a broken revision range.
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -n "$LAST_TAG" ]; then
+            RANGE="$LAST_TAG..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+          git log --oneline "$RANGE" | awk '{print "- " substr($0, index($0,$2))}' >> changelog.txt
+          # Lidarr reads this line from the release body to gate installs.
+          echo "" >> changelog.txt
+          echo "Minimum Lidarr Version: ${{ env.MINIMUM_LIDARR_VERSION }}" >> changelog.txt
       - name: Display Changelog
         if: github.ref == 'refs/heads/main'
         run: cat changelog.txt
@@ -79,7 +90,7 @@ jobs:
           tag_name: ${{ env.PLUGIN_VERSION }}
           name: ${{ env.PLUGIN_VERSION }}
           body_path: changelog.txt
-          draft: true
+          draft: false
           prerelease: false
           files: |
             ${{ env.PLUGIN_NAME }}.net8.0.zip
