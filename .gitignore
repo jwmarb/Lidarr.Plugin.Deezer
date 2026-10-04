@@ -127,6 +127,11 @@ coverage*.json
 setup/Output/
 *.~is
 
+# Local credentials. .env holds a Deezer ARL, a full account bearer token.
+.env
+.env.*
+!.env.example
+
 # .NET Core
 project.lock.json
 project.fragment.lock.json
