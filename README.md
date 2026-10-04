@@ -59,7 +59,7 @@ both talk to Deezer — configuring one does not configure the other.
 ### Prerequisites 📦
 
 - A Lidarr install on the [`plugins` branch](https://wiki.servarr.com/lidarr/installation) — plugins do not load on `master`.
-- A Deezer account, and its [ARL cookie](https://github.com/TrevTV/Lidarr.Plugin.Deezer#how-to-install-) for authentication.
+- A Deezer account, and its ARL cookie — the long `arl` value from your browser's cookies for `deezer.com` after logging in.
 
 A `docker-compose.yml` on the plugins branch looks like this:
 
@@ -87,7 +87,7 @@ services:
    box, and press **Install**.
 
    ```
-   https://github.com/TrevTV/Lidarr.Plugin.Deezer
+   https://github.com/jwmarb/Lidarr.Plugin.Deezer
    ```
 
 2. Go to **Settings → Indexers → Add**, choose **Deezer** (under *Other*, at the
@@ -127,7 +127,7 @@ services:
 ## Building from Source 🔨
 
 ```sh
-git clone --recurse-submodules https://github.com/TrevTV/Lidarr.Plugin.Deezer
+git clone --recurse-submodules https://github.com/jwmarb/Lidarr.Plugin.Deezer
 cd Lidarr.Plugin.Deezer
 dotnet build src/*.sln -c Release \
   -p:AssemblyVersion=1.0.0 -p:FileVersion=1.0.0 -p:Deterministic=true
@@ -140,7 +140,7 @@ installed plugins down with it. CI pins this already; local builds must do it by
 hand. See [ADR-0010](docs/adr/0010-plugins-need-a-fixed-assembly-version.md).
 
 The result lands in `_plugins/`. Copy the `.dll`, `.pdb`, and `.deps.json` into
-`<lidarr-config>/plugins/TrevTV/Lidarr.Plugin.Deezer/` and restart Lidarr.
+`<lidarr-config>/plugins/jwmarb/Lidarr.Plugin.Deezer/` and restart Lidarr.
 
 ## Known Limitations ⚠️
 
