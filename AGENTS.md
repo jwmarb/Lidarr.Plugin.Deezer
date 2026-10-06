@@ -16,7 +16,7 @@ A plugin for Lidarr's `plugins` branch that is both a Deezer indexer and a Deeze
 ## WHERE TO LOOK
 | Task | Path |
 | --- | --- |
-| Plugin entry / name / owner | `src/Lidarr.Plugin.Deezer/Plugin.cs` (Name/Owner/GithubUrl must match the GitHub repo) |
+| Plugin entry / name / owner | `src/Lidarr.Plugin.Deezer/Plugin.cs` (Owner/GithubUrl must match the GitHub repo; Name is the short display name shown in System → Plugins) |
 | Search / indexer | `src/Lidarr.Plugin.Deezer/Indexers/` (`Deezer.cs`, `DeezerParser.cs`, `DeezerRequestGenerator.cs`) |
 | Download client | `src/Lidarr.Plugin.Deezer/Download/Clients/Deezer/` |
 | Queue + immutable download snapshots | `src/Lidarr.Plugin.Deezer/Queue/DownloadQueue.cs` |
