@@ -1,8 +1,8 @@
 <h1 align="center">
-  Lidarr.Plugin.Deezer 🎵
+  Deezer for Lidarr 🎵
 </h1>
 <p align="center">
-  A <strong>Lidarr indexer and download client</strong> that <em>pulls music straight from Deezer</em>, with no Deemix middleman to run.
+  A <strong>Lidarr plugin</strong> that <em>turns a Deezer account into an automatically monitored music library</em>.
 </p>
 
 <br>
@@ -12,24 +12,21 @@
 > was not designed with that in mind, and no amount of care here removes the risk
 > to your account.
 
-## What is Lidarr.Plugin.Deezer?
+## What is Deezer for Lidarr?
 
-A plugin for Lidarr's `plugins` branch that adds Deezer as both a search source
-and a download client. Lidarr searches Deezer directly, publishes each album at
-every quality your account is entitled to, and writes tagged audio into your
-library — all inside the Lidarr process.
+Lidarr tracks the albums you care about and fetches them as they appear. Out of the box it only knows how to talk to torrent and Usenet indexers. The usual way of getting Deezer into Lidarr is through Deemix — a second service that sits between the two. This plugin registers Deezer as both an **indexer** and a **download client** that talks to Deezer directly, so Lidarr can search the Deezer catalogue and pull MP3 128, MP3 320, and FLAC straight from it. Monitoring, quality profiles, renaming, and import all behave exactly as they do for any other source.
 
-## Why use it? 🤔
+## Why use this? 🤔
 
-Other ways of getting Deezer into Lidarr put Deemix in the middle: a second
-service to deploy, update, and debug when a download stalls. This talks to Deezer
-itself, so there is one moving part instead of two, and a failure shows up in
-Lidarr's own logs rather than somewhere else.
+A Deezer subscription already grants you the catalogue, but nothing connects it to a library you actually keep. The usual alternative is Deemix plus a browser tab — a second service to deploy, update, and debug when a download stalls, with files landed where your music server can find them.
+
+With this plugin, adding an artist in Lidarr is the whole workflow. New releases are found, downloaded at the best quality your account is entitled to, tagged, and filed automatically — with no second service to run, and a failure showing up in Lidarr's own logs rather than somewhere else.
 
 ## Features 🚀
 
-- 🔍 **Search and download in one plugin:** registers both a Deezer indexer and a Deezer download client, so grabbing a release needs no external tool.
 - 🎚️ **Every quality your account allows:** publishes MP3 128, MP3 320, and FLAC per album, gated on what Deezer says the account is entitled to.
+- 🔍 **Deezer as a Lidarr indexer:** album searches run against Deezer and return one release per quality, so Lidarr can grade them against your quality profiles.
+- 📥 **Automatic grabbing:** monitored albums download without intervention, through Lidarr's normal queue and import pipeline.
 - 🏷️ **Tags and cover art written on the way in:** title, album, artist, date, track number, and embedded artwork, so imports land clean.
 - 📝 **Lyrics, including synced `.lrc`:** taken from Deezer, with [LRCLIB](https://lrclib.net) as an optional fallback when Deezer has none.
 - 🧹 **Albums with missing tracks hidden:** optional, on by default, so incomplete releases stay out of your search results.
@@ -51,15 +48,17 @@ flowchart LR
     F -->|"import"| L
 ```
 
-Note that the indexer and the download client are separate Lidarr providers that
-both talk to Deezer — configuring one does not configure the other.
+Note that the indexer and the download client are separate Lidarr providers — configuring one does not configure the other. The **indexer** holds the ARL: the download client is handed the originating indexer by Lidarr on every download and reads the ARL from there.
 
 ## How to Install ⚡
 
+> [!TIP]
+> New to this plugin? **[docs/SETUP.md](docs/SETUP.md)** is a step-by-step setup guide that walks through obtaining your ARL and flipping the two Lidarr settings that otherwise silently block downloads.
+
 ### Prerequisites 📦
 
-- A Lidarr install on the [`plugins` branch](https://wiki.servarr.com/lidarr/installation) — plugins do not load on `master`.
-- A Deezer account, and its ARL cookie — the long `arl` value from your browser's cookies for `deezer.com` after logging in.
+- A Lidarr instance on the [`plugins` branch](https://wiki.servarr.com/lidarr/installation) — plugins do not load on `master`.
+- An active [Deezer](https://www.deezer.com/) subscription, and its **ARL cookie** — the long `arl` value from your browser's cookies for `deezer.com` after logging in.
 
 A `docker-compose.yml` on the plugins branch looks like this:
 
@@ -81,30 +80,27 @@ services:
     restart: unless-stopped
 ```
 
-### Steps
+### Installing the plugin 🔌
 
-1. In Lidarr, go to **System → Plugins**, paste the repository URL into the GitHub
-   box, and press **Install**.
+1. In Lidarr, go to `System -> Plugins`, paste the repository URL into the GitHub URL box, and press **Install**. Restart Lidarr when it asks you to.
 
    ```
    https://github.com/jwmarb/Lidarr.Plugin.Deezer
    ```
 
-2. Go to **Settings → Indexers → Add**, choose **Deezer** (under *Other*, at the
-   bottom), paste your ARL, and save.
+2. Go to `Settings -> Indexers`, press **Add**, and choose **Deezer** (under *Other*, at the bottom).
 
-3. Go to **Settings → Download Clients → Add**, choose **Deezer**, and set the
-   download path.
+3. Paste your ARL into **Arl**, press **Test** — it authenticates against Deezer and fails with a named reason when the ARL is missing, expired, or unentitled — then press **Save**.
 
-4. Go to **Settings → Profiles → Delay Profiles**, open each profile, and toggle
-   **Deezer** on. Releases are not grabbable until you do.
+4. Go to `Settings -> Download Clients`, press **Add**, and choose **Deezer** (again under *Other*). Set **Download Path**, and press **Test** — that is what confirms the field holds a path — then **Save**.
 
-5. Optional but recommended: under **Settings → Media Management**, enable
-   **Rename Tracks** so each album gets its own folder instead of everything
-   landing in the artist folder.
+5. Go to `Settings -> Profiles`, find **Delay Profiles**, click the wrench on each one, and toggle **Deezer** on.
 
-6. Optional: to keep `.lrc` lyric files, enable **Import Extra Files** under
-   **Settings → Media Management** and add `lrc` to the list.
+   Without this, every release is rejected with *"DeezerDownloadProtocol is not enabled for this artist."*
+
+6. Optional but recommended: in `Settings -> Media Management`, enable **Rename Tracks** so each album lands in its own folder rather than loose in the artist directory.
+
+7. Optional: to keep `.lrc` lyrics, enable **Import Extra Files** in the same screen and add `lrc` to the list.
 
 ### Settings 🔧
 
@@ -112,17 +108,32 @@ services:
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `Arl` | — | Your Deezer ARL cookie. Required; searches return nothing useful without it. |
+| `Arl` | — | Your Deezer ARL cookie. Required; it is the plugin's only credential. Masked in the UI, stored in the config. |
 | `Hide Albums With Missing Tracks` | on | Omit albums that have unavailable tracks on Deezer. |
-| `Early Download Limit` | none | Days before release date Lidarr may grab from this indexer. |
+| `Early Download Limit` | none | Days before a release date that Lidarr may grab from this indexer. Advanced. |
 
 **Download client**
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `Download Path` | — | Where tracks are written. Must be a path Lidarr can see. |
-| `Save Synced Lyrics` | off | Write a separate `.lrc` file when synced lyrics exist. Needs `lrc` in Import Extra Files. |
-| `Use LRCLIB as Backup Lyric Provider` | off | Fall back to LRCLIB when Deezer has no lyrics for a track. |
+| `Download Path` | — | Where tracks are written before Lidarr imports them. Saving checks it is a valid path. |
+| `Save Synced Lyrics` | `false` | Writes a `.lrc` file when synced lyrics exist. Needs `lrc` in Import Extra Files. |
+| `Use LRCLIB as Backup Lyric Provider` | `false` | Falls back to LRCLIB when Deezer has no lyrics for a track. |
+
+## Getting Your ARL 🔑
+
+For a guided walkthrough of this and every other field, see **[docs/SETUP.md](docs/SETUP.md)**.
+
+The ARL is Deezer's long-lived authentication cookie — a 192-character hex string, and a **full account bearer credential**: it grants exactly what your account grants (streaming, high quality, lossless) and nothing that it does not.
+
+**Obtaining it is one browser step.** Sign in at [deezer.com](https://www.deezer.com/), open developer tools, and copy the value of the `arl` cookie under *Application → Cookies → `https://www.deezer.com`*. There is no API registration, no app id, no hash to compute.
+
+Two things worth understanding, because both produce confusing symptoms:
+
+- **The ARL can expire.** Deezer invalidates it — the web player regenerates it when you log in again — and an expired ARL authenticates as an *anonymous* session. **Test** catches that and names it; an ARL that worked at setup time can still stop working later, and the symptom is then a fresh authentication that fails, not a download that corrupts.
+- **There is no auto-scraping.** Firehawk no longer publishes working tokens, so the plugin does not fetch an ARL for you. The browser cookie is the source, and it is the only credential the plugin needs.
+
+The field is marked as a secret, so Lidarr masks it in the UI and the settings API — but it is stored in clear text in the config, so treat the config and the API as sensitive.
 
 ## Building from Source 🔨
 
@@ -144,20 +155,10 @@ The result lands in `_plugins/`. Copy the `.dll`, `.pdb`, and `.deps.json` into
 
 ## Known Limitations ⚠️
 
-- **FLAC files fail strict integrity checks.** Downloads carry trailing bytes past
-  the end of the audio stream, so `flac -t` reports an error even though the audio
-  plays correctly. The cause is upstream in DeezNET. See
-  [ADR-0011](docs/adr/0011-truncate-before-tagging.md).
-- **An invalid ARL is reported as valid.** The indexer's *Test* button passes even
-  with an expired or junk ARL; the failure only surfaces later, as downloads that
-  cannot fetch audio.
-- **The ARL is stored and displayed in clear text.** It is a full account bearer
-  credential, so treat the Lidarr config and its API as sensitive.
-- **Search recall is capped by tier order.** The first query Lidarr tries is
-  narrower than the fallback, and Lidarr only tries the fallback when the first
-  returns nothing, so some legitimate albums are unreachable.
-- **ARL auto-scraping is disabled.** Firehawk no longer publishes working tokens,
-  so you must supply your own ARL.
+- **The ARL can expire while the plugin is running.** Sessions are cached for the process lifetime, so an ARL that was valid at first use keeps serving its cached session after Deezer invalidates it — until Lidarr restarts and forces a fresh authentication. The expiry then surfaces as a named **Test** failure or as searches that return nothing.
+- **The ARL is stored in clear text in the config.** It is masked in the UI and the settings API, but the stored value is a full account bearer credential, so treat the Lidarr config and its API as sensitive.
+- **Search recall is capped by tier order.** The plain `artist album` query runs first, and the field-qualified refinement is tried only when it returns nothing — so an album the plain query matches only imperfectly is never re-queried with the more precise form.
+- **A partially-failed album is reported as failed.** If some tracks download and others do not, the whole release is marked `Failed` rather than imported in part. Lidarr can then blocklist it and look for another source — but the tracks that did arrive are not kept.
 
 ## Architecture Notes 📐
 
@@ -187,3 +188,7 @@ be a bug in Lidarr's plugin system:
 [Newtonsoft.Json](https://github.com/JamesNK/Newtonsoft.Json)
 ([MIT](https://github.com/JamesNK/Newtonsoft.Json/blob/master/LICENSE.md)) is
 *not* merged — it resolves against the copy Lidarr already ships.
+
+---
+
+Maintained with ❤️ by Joseph Marbella.
